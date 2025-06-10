@@ -75,19 +75,19 @@ func InsertDB(wallet string, amount float64, rawAmount string, digest string, sy
 	return nil
 }
 
-func CheckTransactionExist(transactionHash string, wallet string, coinToken string, ctx context.Context) (bool, error) {
-	var exists bool
-	err := db.DB.NewSelect().
-		ColumnExpr("EXISTS (?)", db.DB.NewSelect().Model((*model.SuiTransaction)(nil)).
-			Where("transaction_hash = ?", transactionHash).
-			Where("wallet_address = ?", wallet).
-			Where("token = ?", coinToken)).
-		Scan(ctx, &exists)
-	if err != nil {
-		return false, err
-	}
-	return exists, nil
-}
+// func CheckTransactionExist(transactionHash string, wallet string, coinToken string, ctx context.Context) (bool, error) {
+// 	var exists bool
+// 	err := db.DB.NewSelect().
+// 		ColumnExpr("EXISTS (?)", db.DB.NewSelect().Model((*model.SuiTransaction)(nil)).
+// 			Where("transaction_hash = ?", transactionHash).
+// 			Where("wallet_address = ?", wallet).
+// 			Where("token = ?", coinToken)).
+// 		Scan(ctx, &exists)
+// 	if err != nil {
+// 		return false, err
+// 	}
+// 	return exists, nil
+// }
 
 func CalculaterReceivedAmount(coinType string, ctx context.Context) (float64, error) {
 	var totalAmount float64

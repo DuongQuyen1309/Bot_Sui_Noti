@@ -49,6 +49,7 @@ func SUITeleNoti(ctx context.Context) error {
 	newestcheckpoint := latestCheckPointNumber
 	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		err = FilterInRealtime(client, ctx, int(newestcheckpoint))
 		if err != nil {
 			fmt.Println("Error filtering realtime", err)
@@ -56,37 +57,34 @@ func SUITeleNoti(ctx context.Context) error {
 		}
 	}()
 	go func() {
-		err = FilterInPast(ctx, client)
+		defer wg.Done()
+		// em không bắt lỗi ở đây vì hàm này có 2 goroutine nếu lỗi em sẽ in ra console kết thúc goroutine đó còn
+		// goroutine kia vẫn chạy bình thường
+		FilterInPast(ctx, client)
+	}()
+	wg.Wait()
+	return nil
+}
+
+func FilterInPast(ctx context.Context, client sui.ISuiAPI) {
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		err := FilterTransactionReceivedInPast(ctx, client)
 		if err != nil {
-			fmt.Println("Error filtering in past", err)
+			fmt.Println("Error filtering received transactions in past", err)
+			return
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		err := FilterTransactionSentInPast(ctx, client)
+		if err != nil {
+			fmt.Println("Error filtering sent transactions in past", err)
 			return
 		}
 	}()
 	wg.Wait()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func FilterInPast(ctx context.Context, client sui.ISuiAPI) error {
-	var err error
-	go func() {
-		err = FilterTransactionReceivedInPast(ctx, client)
-		if err != nil {
-			return
-		}
-	}()
-	go func() {
-		err = FilterTransactionSentInPast(ctx, client)
-		if err != nil {
-			return
-		}
-	}()
-	if err != nil {
-		return err
-	}
-	return nil
 }
 func FilterTransactionReceivedInPast(ctx context.Context, client sui.ISuiAPI) error {
 	var currentCurson *string
@@ -151,6 +149,13 @@ func FilterTransactionSentInPast(ctx context.Context, client sui.ISuiAPI) error 
 		time.Sleep(200 * time.Millisecond)
 	}
 }
+
+/*
+hàm này em xử lý realtime, em sẽ cho chạy từ checkpoint mới nhất về sau,
+nếu hàm client.SuiGetCheckpoint chạy được em sẽ xử lý checkpoint đó, lọc thảo mãn với ví theo dõi,
+nếu lỗi thì em sẽ cho chờ 1 giây rồi chạy lại checkpoint đó, lỗi là do checkpoint đó chưa tồn tại, chờ để
+checkpoint đó hoàn thiện, tiếp tục quá trình như vậy
+*/
 func FilterInRealtime(client sui.ISuiAPI, ctx context.Context, newestCheckpoint int) error {
 	for {
 		req := models.SuiGetCheckpointRequest{
@@ -163,11 +168,13 @@ func FilterInRealtime(client sui.ISuiAPI, ctx context.Context, newestCheckpoint 
 		}
 		if err := HandleACheckpoint(strconv.Itoa(int(newestCheckpoint)), ctx, client); err != nil {
 			fmt.Println("Error check point :", newestCheckpoint, err)
+			return err
 		}
 		newestCheckpoint++
 	}
 }
 
+// đây là hàm để em xử lý checkpoint sử dụng cho phần realtime để lấy các transaction block
 func HandleACheckpoint(currentCheckpoint string, ctx context.Context, client sui.ISuiAPI) error {
 	var currentCurson *string
 	for {
@@ -201,6 +208,8 @@ func HandleACheckpoint(currentCheckpoint string, ctx context.Context, client sui
 		time.Sleep(200 * time.Millisecond)
 	}
 }
+
+// hàm này em xử lý balance change của transaction block thỏa mãn với địa chỉ ví cần theo dõi
 func HandleBalanceChangeOfTransactionBlock(tx models.SuiTransactionBlockResponse, ctx context.Context) error {
 	digest := tx.Digest
 	stringTimestamp, err := strconv.Atoi(tx.TimestampMs)
@@ -227,14 +236,6 @@ func HandleBalanceChangeOfTransactionBlock(tx models.SuiTransactionBlockResponse
 			if err := datastore.InsertDB(walletAddress, amount, change.Amount, digest, coinType, timestamp, ctx); err != nil {
 				fmt.Println("Error insert db", err)
 				return err
-			}
-
-			isExist, err := datastore.CheckTransactionExist(digest, walletAddress, coinType, ctx)
-			if err != nil {
-				fmt.Println("Error checking transaction existence", err)
-			}
-			if isExist {
-				continue
 			}
 			if err := SendNotification(walletAddress, amount, coinType, timestamp); err != nil {
 				fmt.Println("Error send notification", err)
