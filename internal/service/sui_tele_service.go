@@ -58,8 +58,8 @@ func SUITeleNoti(ctx context.Context) error {
 	}()
 	go func() {
 		defer wg.Done()
-		// em không bắt lỗi ở đây vì hàm này có 2 goroutine nếu lỗi em sẽ in ra console kết thúc goroutine đó còn
-		// goroutine kia vẫn chạy bình thường
+		/* em không bắt lỗi ở đây vì hàm này có 2 goroutine nếu lỗi em sẽ in ra console kết thúc goroutine đó còn
+		goroutine kia vẫn chạy bình thường */
 		FilterInPast(ctx, client)
 	}()
 	wg.Wait()
