@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -58,35 +59,49 @@ func SUITeleNoti(ctx context.Context) error {
 	}()
 	go func() {
 		defer wg.Done()
-		/* em không bắt lỗi ở đây vì hàm này có 2 goroutine nếu lỗi em sẽ in ra console kết thúc goroutine đó còn
-		goroutine kia vẫn chạy bình thường */
-		FilterInPast(ctx, client)
+		pastTime, cancel := context.WithCancel(ctx)
+		err = FilterInPast(pastTime, cancel, client)
+		if err != nil {
+			fmt.Println("Error filtering in past", err)
+			return
+		}
 	}()
 	wg.Wait()
 	return nil
 }
 
-func FilterInPast(ctx context.Context, client sui.ISuiAPI) {
+func FilterInPast(pastTime context.Context, cancel context.CancelFunc, client sui.ISuiAPI) error {
+	errChan := make(chan error, 2)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		err := FilterTransactionReceivedInPast(ctx, client)
+		err := FilterTransactionReceivedInPast(pastTime, client)
 		if err != nil {
+			errChan <- err
 			fmt.Println("Error filtering received transactions in past", err)
 			return
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		err := FilterTransactionSentInPast(ctx, client)
+		err := FilterTransactionSentInPast(pastTime, client)
 		if err != nil {
+			errChan <- err
 			fmt.Println("Error filtering sent transactions in past", err)
 			return
 		}
 	}()
+	select {
+	case <-pastTime.Done():
+		cancel()
+	case err := <-errChan:
+		cancel()
+		return err
+	}
 	wg.Wait()
+	return nil
 }
-func FilterTransactionReceivedInPast(ctx context.Context, client sui.ISuiAPI) error {
+func FilterTransactionReceivedInPast(pastTime context.Context, client sui.ISuiAPI) error {
 	var currentCurson *string
 	for {
 		req := models.SuiXQueryTransactionBlocksRequest{
@@ -104,12 +119,18 @@ func FilterTransactionReceivedInPast(ctx context.Context, client sui.ISuiAPI) er
 			Limit:           10,
 			DescendingOrder: true,
 		}
-		resp, err := QueryTransactionBlocks(client, ctx, req)
-		if err != nil {
-			return err
+		select {
+		case <-pastTime.Done():
+			return pastTime.Err()
+		default:
+			resp, err := QueryTransactionBlocks(client, pastTime, req)
+			if err != nil {
+				return err
+			}
+			currentCurson = &resp.NextCursor
+			time.Sleep(200 * time.Millisecond)
+			continue
 		}
-		currentCurson = &resp.NextCursor
-		time.Sleep(200 * time.Millisecond)
 	}
 }
 func QueryTransactionBlocks(client sui.ISuiAPI, ctx context.Context, req models.SuiXQueryTransactionBlocksRequest) (*models.SuiXQueryTransactionBlocksResponse, error) {
@@ -123,7 +144,7 @@ func QueryTransactionBlocks(client sui.ISuiAPI, ctx context.Context, req models.
 	}
 	return &resp, nil
 }
-func FilterTransactionSentInPast(ctx context.Context, client sui.ISuiAPI) error {
+func FilterTransactionSentInPast(pastTime context.Context, client sui.ISuiAPI) error {
 	var currentCurson *string
 	for {
 		req := models.SuiXQueryTransactionBlocksRequest{
@@ -141,12 +162,18 @@ func FilterTransactionSentInPast(ctx context.Context, client sui.ISuiAPI) error 
 			Limit:           10,
 			DescendingOrder: true,
 		}
-		resp, err := QueryTransactionBlocks(client, ctx, req)
-		if err != nil {
-			return err
+		select {
+		case <-pastTime.Done():
+			return pastTime.Err()
+		default:
+			resp, err := QueryTransactionBlocks(client, pastTime, req)
+			if err != nil {
+				return err
+			}
+			currentCurson = &resp.NextCursor
+			time.Sleep(200 * time.Millisecond)
+			continue
 		}
-		currentCurson = &resp.NextCursor
-		time.Sleep(200 * time.Millisecond)
 	}
 }
 
@@ -260,7 +287,8 @@ type AddressOwner struct {
 }
 
 func CreateBot() (*tgbotapi.BotAPI, error) {
-	bot, err := tgbotapi.NewBotAPI("8062110103:AAF2gNUOTNJJ59ZccmtgxqfDplLbs3JQVaI")
+	botApi := os.Getenv("BOT_API")
+	bot, err := tgbotapi.NewBotAPI(botApi)
 	if err != nil {
 		return nil, err
 	}
