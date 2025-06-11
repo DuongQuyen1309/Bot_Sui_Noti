@@ -48,24 +48,37 @@ func SUITeleNoti(ctx context.Context) error {
 		return err
 	}
 	newestcheckpoint := latestCheckPointNumber
+	// em tạo context để cancel nếu một goroutine bị lỗi em hủy hết
+	generalContext, cancel := context.WithCancel(ctx)
+	errChan := make(chan error, 2)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		err = FilterInRealtime(client, ctx, int(newestcheckpoint))
+		err = FilterInRealtime(client, generalContext, int(newestcheckpoint))
 		if err != nil {
+			errChan <- err
 			fmt.Println("Error filtering realtime", err)
 			return
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		pastTime, cancel := context.WithCancel(ctx)
+		pastTime, cancel := context.WithCancel(generalContext)
 		err = FilterInPast(pastTime, cancel, client)
 		if err != nil {
+			errChan <- err
 			fmt.Println("Error filtering in past", err)
 			return
 		}
 	}()
+	select {
+	case <-generalContext.Done():
+		cancel()
+	case err := <-errChan:
+		fmt.Println("Error in tracking event", err)
+		cancel()
+		return err
+	}
 	wg.Wait()
 	return nil
 }
