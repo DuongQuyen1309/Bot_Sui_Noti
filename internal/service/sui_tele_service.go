@@ -21,8 +21,11 @@ import (
 var (
 	coinDecimals  = make(map[string]int)
 	bot           *tgbotapi.BotAPI
-	wg            sync.WaitGroup
 	configuration *config.Config
+)
+
+const (
+	limitOfItemPerPage = 50
 )
 
 func SUITeleNoti(ctx context.Context) error {
@@ -38,8 +41,17 @@ func SUITeleNoti(ctx context.Context) error {
 		fmt.Println("Error create bot", err)
 		return err
 	}
+
 	for _, token := range configuration.Wallet.Token {
-		coinDecimals[token.Address] = token.Decimals
+		req := models.SuiXGetCoinMetadataRequest{
+			CoinType: token.Address,
+		}
+		coinMetaData, err := client.SuiXGetCoinMetadata(ctx, req)
+		if err != nil {
+			fmt.Println("Error getting coin metadata", err)
+			return err
+		}
+		coinDecimals[token.Address] = coinMetaData.Decimals
 	}
 
 	latestCheckPointNumber, err := client.SuiGetLatestCheckpointSequenceNumber(ctx)
@@ -51,6 +63,7 @@ func SUITeleNoti(ctx context.Context) error {
 	// em tạo context để cancel nếu một goroutine bị lỗi em hủy hết
 	generalContext, cancel := context.WithCancel(ctx)
 	errChan := make(chan error, 2)
+	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -85,6 +98,9 @@ func SUITeleNoti(ctx context.Context) error {
 
 func FilterInPast(pastTime context.Context, cancel context.CancelFunc, client sui.ISuiAPI) error {
 	errChan := make(chan error, 2)
+	var wg sync.WaitGroup
+	completeChan := make(chan bool, 2)
+	complete := 0
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -94,6 +110,7 @@ func FilterInPast(pastTime context.Context, cancel context.CancelFunc, client su
 			fmt.Println("Error filtering received transactions in past", err)
 			return
 		}
+		completeChan <- true
 	}()
 	go func() {
 		defer wg.Done()
@@ -103,19 +120,28 @@ func FilterInPast(pastTime context.Context, cancel context.CancelFunc, client su
 			fmt.Println("Error filtering sent transactions in past", err)
 			return
 		}
+		completeChan <- true
 	}()
-	select {
-	case <-pastTime.Done():
-		cancel()
-	case err := <-errChan:
-		cancel()
-		return err
+	for {
+		select {
+		case <-pastTime.Done():
+			cancel()
+			return pastTime.Err()
+		case err := <-errChan:
+			cancel()
+			return err
+		case <-completeChan:
+			complete++
+		}
+		if complete == 2 {
+			break
+		}
 	}
 	wg.Wait()
 	return nil
 }
 func FilterTransactionReceivedInPast(pastTime context.Context, client sui.ISuiAPI) error {
-	var currentCurson *string
+	var currentCursor *string
 	for {
 		req := models.SuiXQueryTransactionBlocksRequest{
 			SuiTransactionBlockResponseQuery: models.SuiTransactionBlockResponseQuery{
@@ -123,12 +149,10 @@ func FilterTransactionReceivedInPast(pastTime context.Context, client sui.ISuiAP
 					"ToAddress": configuration.Wallet.AddressId,
 				},
 				Options: models.SuiTransactionBlockOptions{
-					ShowInput:          false,
-					ShowEffects:        false,
 					ShowBalanceChanges: true,
 				},
 			},
-			Cursor:          currentCurson,
+			Cursor:          currentCursor,
 			Limit:           10,
 			DescendingOrder: true,
 		}
@@ -140,7 +164,7 @@ func FilterTransactionReceivedInPast(pastTime context.Context, client sui.ISuiAP
 			if err != nil {
 				return err
 			}
-			currentCurson = &resp.NextCursor
+			currentCursor = &resp.NextCursor
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
@@ -166,8 +190,6 @@ func FilterTransactionSentInPast(pastTime context.Context, client sui.ISuiAPI) e
 					"FromAddress": configuration.Wallet.AddressId,
 				},
 				Options: models.SuiTransactionBlockOptions{
-					ShowInput:          false,
-					ShowEffects:        false,
 					ShowBalanceChanges: true,
 				},
 			},
@@ -206,7 +228,7 @@ func FilterInRealtime(client sui.ISuiAPI, ctx context.Context, newestCheckpoint 
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		if err := HandleACheckpoint(strconv.Itoa(int(newestCheckpoint)), ctx, client); err != nil {
+		if err := HandleCheckpoint(strconv.Itoa(int(newestCheckpoint)), ctx, client); err != nil {
 			fmt.Println("Error check point :", newestCheckpoint, err)
 			return err
 		}
@@ -215,7 +237,7 @@ func FilterInRealtime(client sui.ISuiAPI, ctx context.Context, newestCheckpoint 
 }
 
 // đây là hàm để em xử lý checkpoint sử dụng cho phần realtime để lấy các transaction block
-func HandleACheckpoint(currentCheckpoint string, ctx context.Context, client sui.ISuiAPI) error {
+func HandleCheckpoint(currentCheckpoint string, ctx context.Context, client sui.ISuiAPI) error {
 	var currentCurson *string
 	for {
 		req := models.SuiXQueryTransactionBlocksRequest{
@@ -230,7 +252,7 @@ func HandleACheckpoint(currentCheckpoint string, ctx context.Context, client sui
 				},
 			},
 			Cursor:          currentCurson,
-			Limit:           5,
+			Limit:           limitOfItemPerPage,
 			DescendingOrder: true,
 		}
 		resp, err := client.SuiXQueryTransactionBlocks(ctx, req)
@@ -310,13 +332,18 @@ func CreateBot() (*tgbotapi.BotAPI, error) {
 
 func SendNotification(wallet string, amount float64, coinType string, timestamp time.Time) error {
 	var msg tgbotapi.MessageConfig
-	if amount > 0 {
-		msg = tgbotapi.NewMessage(7734814066, fmt.Sprintf("TK: %s\nBalance Change: +%v %s\nAt :%v", wallet, amount, coinType, timestamp))
+	// teleId := os.Getenv("TELE_ID")
+	teleId, err := strconv.ParseInt(os.Getenv("TELE_ID"), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid TELE_ID: %v", err)
 	}
-	if amount < 0 {
-		msg = tgbotapi.NewMessage(7734814066, fmt.Sprintf("TK: %s\nBalance Change: %v %s\nAt :%v", wallet, amount, coinType, timestamp))
+	switch amount > 0 {
+	case true:
+		msg = tgbotapi.NewMessage(teleId, fmt.Sprintf("Wallet: %s\nBalance Change: +%v\nCoin Type: %s\nAt :%v", wallet, amount, coinType, timestamp))
+	default:
+		msg = tgbotapi.NewMessage(teleId, fmt.Sprintf("Wallet: %s\nBalance Change: %v\nCoin Type: %s\nAt :%v", wallet, amount, coinType, timestamp))
 	}
-	_, err := bot.Send(msg)
+	_, err = bot.Send(msg)
 	if err != nil {
 		fmt.Println("Error sending message", err)
 		return err

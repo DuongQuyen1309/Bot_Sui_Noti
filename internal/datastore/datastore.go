@@ -2,7 +2,7 @@ package datastore
 
 import (
 	"context"
-	"fmt"
+	// "fmt"
 	"time"
 
 	"github.com/DuongQuyen1309/suibottele/internal/db"
@@ -23,7 +23,6 @@ func CreateTransactionsTable(ctx context.Context) error {
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -33,7 +32,6 @@ func CreateTransactionsTable(ctx context.Context) error {
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -43,7 +41,6 @@ func CreateTransactionsTable(ctx context.Context) error {
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -54,7 +51,6 @@ func CreateTransactionsTable(ctx context.Context) error {
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 	return nil
@@ -67,9 +63,8 @@ func InsertDB(wallet string, amount float64, rawAmount string, digest string, sy
 		Token:           symbol,
 		TransactionHash: digest,
 		CreatedAt:       timestamp,
-	}).On("CONFLICT (transaction_hash, wallet_address, token) DO NOTHING").Exec(ctx)
+	}).Ignore().Exec(ctx)
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 	return nil
