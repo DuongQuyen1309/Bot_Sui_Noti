@@ -2,52 +2,48 @@ package datastore
 
 import (
 	"context"
-	// "fmt"
 	"time"
 
 	"github.com/DuongQuyen1309/suibottele/internal/db"
 	"github.com/DuongQuyen1309/suibottele/internal/model"
 )
 
-func CreateTransactionsTable(ctx context.Context) error {
+func CreateBalanceChangeEventTable(ctx context.Context) error {
 	_, err := db.DB.NewCreateTable().
-		Model((*model.SuiTransaction)(nil)).
+		Model((*model.BalanceChangeEvent)(nil)).
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = db.DB.NewCreateIndex().Model((*model.SuiTransaction)(nil)).
-		Index("idx_transaction_hash").
+	_, err = db.DB.NewCreateIndex().Model((*model.BalanceChangeEvent)(nil)).
+		Index("idx_sui_transaction_hash_address_token").
+		Unique().
+		Column("transaction_hash", "wallet_address", "token").
+		IfNotExists().
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = db.DB.NewCreateIndex().Model((*model.BalanceChangeEvent)(nil)).
+		Index("idx_sui_transaction_hash").
 		Column("transaction_hash").
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
 		return err
 	}
-
-	_, err = db.DB.NewCreateIndex().Model((*model.SuiTransaction)(nil)).
-		Index("idx_token_amount").
+	_, err = db.DB.NewCreateIndex().Model((*model.BalanceChangeEvent)(nil)).
+		Index("idx_sui_token_amount").
 		Column("token", "amount").
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
 		return err
 	}
-
-	_, err = db.DB.NewCreateIndex().Model((*model.SuiTransaction)(nil)).
-		Index("idx_created").
+	_, err = db.DB.NewCreateIndex().Model((*model.BalanceChangeEvent)(nil)).
+		Index("idx_sui_created").
 		Column("created_at").
-		IfNotExists().
-		Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	_, err = db.DB.NewCreateIndex().Model((*model.SuiTransaction)(nil)).
-		Index("idx_transaction_hash_address_token").
-		Unique().
-		Column("transaction_hash", "wallet_address", "token").
 		IfNotExists().
 		Exec(ctx)
 	if err != nil {
@@ -56,39 +52,25 @@ func CreateTransactionsTable(ctx context.Context) error {
 	return nil
 }
 func InsertDB(wallet string, amount float64, rawAmount string, digest string, symbol string, timestamp time.Time, ctx context.Context) error {
-	_, err := db.DB.NewInsert().Model(&model.SuiTransaction{
+	_, err := db.DB.NewInsert().Model(&model.BalanceChangeEvent{
 		WalletAddress:   wallet,
 		Amount:          amount,
 		RawAmount:       rawAmount,
 		Token:           symbol,
 		TransactionHash: digest,
 		CreatedAt:       timestamp,
-	}).Ignore().Exec(ctx)
+	}).On("CONFLICT (transaction_hash, wallet_address, token) DO NOTHING").Exec(ctx)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-// func CheckTransactionExist(transactionHash string, wallet string, coinToken string, ctx context.Context) (bool, error) {
-// 	var exists bool
-// 	err := db.DB.NewSelect().
-// 		ColumnExpr("EXISTS (?)", db.DB.NewSelect().Model((*model.SuiTransaction)(nil)).
-// 			Where("transaction_hash = ?", transactionHash).
-// 			Where("wallet_address = ?", wallet).
-// 			Where("token = ?", coinToken)).
-// 		Scan(ctx, &exists)
-// 	if err != nil {
-// 		return false, err
-// 	}
-// 	return exists, nil
-// }
-
 func CalculaterReceivedAmount(coinType string, ctx context.Context) (float64, error) {
 	var totalAmount float64
 	err := db.DB.NewSelect().
 		ColumnExpr("SUM(amount)").
-		Model((*model.SuiTransaction)(nil)).
+		Model((*model.BalanceChangeEvent)(nil)).
 		Where("token = ?", coinType).
 		Where("amount > 0").
 		Scan(ctx, &totalAmount)
@@ -101,7 +83,7 @@ func CalculaterSentAmount(coinType string, ctx context.Context) (float64, error)
 	var totalAmount float64
 	err := db.DB.NewSelect().
 		ColumnExpr("SUM(amount)").
-		Model((*model.SuiTransaction)(nil)).
+		Model((*model.BalanceChangeEvent)(nil)).
 		Where("token = ?", coinType).
 		Where("amount < 0").
 		Scan(ctx, &totalAmount)
@@ -111,8 +93,8 @@ func CalculaterSentAmount(coinType string, ctx context.Context) (float64, error)
 	return totalAmount, nil
 }
 
-func DetailTransaction(hash string, offset int, limit int, ctx context.Context) (*[]model.SuiTransaction, error) {
-	var transaction []model.SuiTransaction
+func GetBalanceChangeEvents(hash string, offset int, limit int, ctx context.Context) (*[]model.BalanceChangeEvent, error) {
+	var transaction []model.BalanceChangeEvent
 	err := db.DB.NewSelect().
 		Model(&transaction).
 		Where("transaction_hash = ?", hash).
@@ -125,8 +107,8 @@ func DetailTransaction(hash string, offset int, limit int, ctx context.Context) 
 	return &transaction, nil
 }
 
-func GetTransactionInRange(fromDate time.Time, toDate time.Time, offset int, limit int, ctx context.Context) (*[]model.SuiTransaction, error) {
-	var transaction []model.SuiTransaction
+func GetBalanceChangeEventInRange(fromDate time.Time, toDate time.Time, offset int, limit int, ctx context.Context) (*[]model.BalanceChangeEvent, error) {
+	var transaction []model.BalanceChangeEvent
 	err := db.DB.NewSelect().
 		Model(&transaction).
 		Where("created_at >= ?", fromDate).

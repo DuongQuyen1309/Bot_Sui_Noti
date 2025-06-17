@@ -6,21 +6,18 @@ import (
 )
 
 type Token struct {
-	Symbol   string `json:"symbol"`
-	Address  string `json:"address"`
-	Decimals int    `json:"decimals"`
+	Address string `json:"address"`
 }
 type Config struct {
 	Wallet Wallet `json:"wallet"`
 }
 type Wallet struct {
-	Name      string  `json:"name"`
 	AddressId string  `json:"addressId"`
 	Token     []Token `json:"token"`
 }
 
 func LoadCofig() (*Config, error) {
-	configFile, err := os.ReadFile("internal/config/config.json")
+	configFile, err := os.ReadFile(os.Getenv("CONFIG_PATH"))
 	if err != nil {
 		return nil, err
 	}

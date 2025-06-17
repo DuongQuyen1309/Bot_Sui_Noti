@@ -6,8 +6,8 @@ import (
 	"github.com/uptrace/bun"
 )
 
-type SuiTransaction struct {
-	bun.BaseModel `bun:"table:suichains"`
+type BalanceChangeEvent struct {
+	bun.BaseModel `bun:"table:balance_change_events"`
 
 	Id              int       `bun:"id,pk,autoincrement" json:"id"`
 	WalletAddress   string    `bun:"wallet_address" json:"walletAddress"`
