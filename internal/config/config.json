@@ -1,0 +1,28 @@
+{
+    "wallet": {
+        "addressId": "0xa237d481cc6aefa853d376479fb5f6f5631708ffec71c9e4d4580f9b03bc1843",
+        "token": [
+            {
+                "address": "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN"
+            },
+            {
+                "address": "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN"
+            },
+            {
+                "address": "0x2::sui::SUI"
+            },
+            {
+                "address": "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d::hasui::HASUI"
+            },
+            {
+                "address": "0x285b49635f4ed253967a2a4a5f0c5aea2cbd9dd0fc427b4086f3fad7ccef2c29::i_sui::I_SUI"
+            },
+            {
+                "address": "0xa99b8952d4f7d947ea77fe0ecdcc9e5fc0bcab2841d6e2a5aa00c3044e5544b5::navx::NAVX"
+            },
+            {
+                "address": "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+            }
+        ]
+    }
+}
